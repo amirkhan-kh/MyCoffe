@@ -9,6 +9,7 @@ import {
   adminCredentials,
   clearFailures,
   loginBlocked,
+  isAdmin,
   recordFailure,
   requireAdmin,
   safeEqual,
@@ -71,14 +72,44 @@ const i18nSchema = z.object({
 
 const trimI18n = (v: I18n): I18n => ({ uz: v.uz.trim(), ru: v.ru.trim(), en: v.en.trim() });
 
+/**
+ * Mutations report failures as values: production builds replace thrown messages with a
+ * generic digest, so the admin would never see why a save was refused.
+ */
+export type ActionResult = { ok: true; doc: MenuDoc } | { ok: false; error: string; expired?: boolean };
+
+class UserError extends Error {}
+
+function describeFailure(err: unknown): string {
+  if (err instanceof UserError) return err.message;
+  if (err instanceof z.ZodError) return "Ma’lumotlar noto‘g‘ri kiritilgan. Maydonlarni tekshirib, qayta saqlang.";
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  if (code === "EROFS" || code === "EACCES") {
+    return "Serverda faylga yozib bo‘lmaydi. Vercel’da SUPABASE_URL va SUPABASE_SERVICE_ROLE_KEY sozlanishi kerak.";
+  }
+  if (err instanceof Error && err.message.startsWith("Supabase")) return `Bazaga ulanib bo‘lmadi: ${err.message}`;
+  return "Saqlab bo‘lmadi: server xatosi. Birozdan so‘ng qayta urinib ko‘ring.";
+}
+
+async function guarded(fn: () => Promise<MenuDoc>): Promise<ActionResult> {
+  if (!(await isAdmin())) return { ok: false, error: "Sessiya tugagan. Qaytadan kiring.", expired: true };
+  try {
+    return { ok: true, doc: await fn() };
+  } catch (err) {
+    if (!(err instanceof UserError) && !(err instanceof z.ZodError)) console.error("[admin] action failed:", err);
+    return { ok: false, error: describeFailure(err) };
+  }
+}
+
 async function mutate(fn: (doc: MenuDoc) => void | Promise<void>) {
-  await requireAdmin();
   const doc = await loadDoc();
   await fn(doc);
   const saved = await saveDoc(doc);
   updateTag(MENU_TAG);
   return saved;
 }
+
+const mutation = (fn: (doc: MenuDoc) => void | Promise<void>) => guarded(() => mutate(fn));
 
 const itemSchema = z.object({
   id: z.string().optional(),
@@ -94,57 +125,58 @@ const itemSchema = z.object({
 
 export type ItemInput = z.infer<typeof itemSchema>;
 
-export async function saveItemAction(input: ItemInput) {
-  await requireAdmin();
-  const data = itemSchema.parse(input);
-  const name = trimI18n(data.name);
-  if (!name.uz && !name.ru && !name.en) throw new Error("Mahsulot nomi kiritilmagan");
-  const prev = data.id ? (await loadDoc()).items.find((i) => i.id === data.id) : undefined;
-  const [fullName, fullDesc] = await Promise.all([
-    syncI18n(prev?.name, name, "name"),
-    syncI18n(prev?.description, trimI18n(data.description), "description"),
-  ]);
+export async function saveItemAction(input: ItemInput): Promise<ActionResult> {
+  return guarded(async () => {
+    const data = itemSchema.parse(input);
+    const name = trimI18n(data.name);
+    if (!name.uz && !name.ru && !name.en) throw new UserError("Mahsulot nomi kiritilmagan");
+    const prev = data.id ? (await loadDoc()).items.find((i) => i.id === data.id) : undefined;
+    const [fullName, fullDesc] = await Promise.all([
+      syncI18n(prev?.name, name, "name"),
+      syncI18n(prev?.description, trimI18n(data.description), "description"),
+    ]);
 
-  return mutate((doc) => {
-    if (!doc.categories.some((c) => c.id === data.categoryId)) throw new Error("Kategoriya topilmadi");
-    const item = {
-      id: data.id ?? randomUUID(),
-      categoryId: data.categoryId,
-      name: fullName,
-      description: fullDesc,
-      price: data.price,
-      priceMax: data.priceMax && data.priceMax > data.price ? data.priceMax : null,
-      seasonal: data.seasonal,
-      addon: data.addon,
-      available: data.available,
-    };
-    const idx = doc.items.findIndex((i) => i.id === item.id);
-    if (idx === -1) {
-      doc.items.push(item);
-    } else if (doc.items[idx].categoryId !== item.categoryId) {
-      doc.items.splice(idx, 1);
-      doc.items.push(item);
-    } else {
-      doc.items[idx] = item;
-    }
+    return mutate((doc) => {
+      if (!doc.categories.some((c) => c.id === data.categoryId)) throw new UserError("Kategoriya topilmadi");
+      const item = {
+        id: data.id ?? randomUUID(),
+        categoryId: data.categoryId,
+        name: fullName,
+        description: fullDesc,
+        price: data.price,
+        priceMax: data.priceMax && data.priceMax > data.price ? data.priceMax : null,
+        seasonal: data.seasonal,
+        addon: data.addon,
+        available: data.available,
+      };
+      const idx = doc.items.findIndex((i) => i.id === item.id);
+      if (idx === -1) {
+        doc.items.push(item);
+      } else if (doc.items[idx].categoryId !== item.categoryId) {
+        doc.items.splice(idx, 1);
+        doc.items.push(item);
+      } else {
+        doc.items[idx] = item;
+      }
+    });
   });
 }
 
-export async function deleteItemAction(id: string) {
-  return mutate((doc) => {
+export async function deleteItemAction(id: string): Promise<ActionResult> {
+  return mutation((doc) => {
     doc.items = doc.items.filter((i) => i.id !== id);
   });
 }
 
-export async function setItemAvailableAction(id: string, available: boolean) {
-  return mutate((doc) => {
+export async function setItemAvailableAction(id: string, available: boolean): Promise<ActionResult> {
+  return mutation((doc) => {
     const item = doc.items.find((i) => i.id === id);
     if (item) item.available = available;
   });
 }
 
-export async function moveItemAction(id: string, dir: -1 | 1) {
-  return mutate((doc) => {
+export async function moveItemAction(id: string, dir: -1 | 1): Promise<ActionResult> {
+  return mutation((doc) => {
     const idx = doc.items.findIndex((i) => i.id === id);
     if (idx === -1) return;
     const cat = doc.items[idx].categoryId;
@@ -167,33 +199,34 @@ const categorySchema = z.object({
 
 export type CategoryInput = z.infer<typeof categorySchema>;
 
-export async function saveCategoryAction(input: CategoryInput) {
-  await requireAdmin();
-  const data = categorySchema.parse(input);
-  const name = trimI18n(data.name);
-  if (!name.uz && !name.ru && !name.en) throw new Error("Kategoriya nomi kiritilmagan");
-  const prev = data.id ? (await loadDoc()).categories.find((c) => c.id === data.id) : undefined;
-  const full = await syncI18n(prev?.name, name, "name");
-  return mutate((doc) => {
-    const existing = data.id ? doc.categories.find((c) => c.id === data.id) : undefined;
-    if (existing) {
-      existing.name = full;
-      existing.icon = data.icon;
-    } else {
-      doc.categories.push({ id: randomUUID().slice(0, 8), name: full, icon: data.icon });
-    }
+export async function saveCategoryAction(input: CategoryInput): Promise<ActionResult> {
+  return guarded(async () => {
+    const data = categorySchema.parse(input);
+    const name = trimI18n(data.name);
+    if (!name.uz && !name.ru && !name.en) throw new UserError("Kategoriya nomi kiritilmagan");
+    const prev = data.id ? (await loadDoc()).categories.find((c) => c.id === data.id) : undefined;
+    const full = await syncI18n(prev?.name, name, "name");
+    return mutate((doc) => {
+      const existing = data.id ? doc.categories.find((c) => c.id === data.id) : undefined;
+      if (existing) {
+        existing.name = full;
+        existing.icon = data.icon;
+      } else {
+        doc.categories.push({ id: randomUUID().slice(0, 8), name: full, icon: data.icon });
+      }
+    });
   });
 }
 
-export async function deleteCategoryAction(id: string) {
-  return mutate((doc) => {
+export async function deleteCategoryAction(id: string): Promise<ActionResult> {
+  return mutation((doc) => {
     doc.categories = doc.categories.filter((c) => c.id !== id);
     doc.items = doc.items.filter((i) => i.categoryId !== id);
   });
 }
 
-export async function moveCategoryAction(id: string, dir: -1 | 1) {
-  return mutate((doc) => {
+export async function moveCategoryAction(id: string, dir: -1 | 1): Promise<ActionResult> {
+  return mutation((doc) => {
     const idx = doc.categories.findIndex((c) => c.id === id);
     const j = idx + dir;
     if (idx === -1 || j < 0 || j >= doc.categories.length) return;
@@ -214,9 +247,11 @@ const settingsSchema = z.object({
   weatherEffects: z.boolean(),
 });
 
-export async function saveSettingsAction(input: z.infer<typeof settingsSchema>) {
-  const data = settingsSchema.parse(input);
-  return mutate((doc) => {
-    doc.settings = data;
+export async function saveSettingsAction(input: z.infer<typeof settingsSchema>): Promise<ActionResult> {
+  return guarded(async () => {
+    const data = settingsSchema.parse(input);
+    return mutate((doc) => {
+      doc.settings = data;
+    });
   });
 }

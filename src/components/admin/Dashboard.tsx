@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
   deleteCategoryAction,
@@ -13,6 +14,7 @@ import {
   saveItemAction,
   saveSettingsAction,
   setItemAvailableAction,
+  type ActionResult,
   type CategoryInput,
   type ItemInput,
 } from "@/app/admin/actions";
@@ -30,6 +32,7 @@ type Tab = "menu" | "settings" | "qr";
 type Toast = { id: number; text: string; tone: "ok" | "error" };
 
 export function Dashboard({ initialDoc }: { initialDoc: MenuDoc }) {
+  const router = useRouter();
   const [doc, setDoc] = useState(initialDoc);
   const [tab, setTab] = useState<Tab>("menu");
   const [catId, setCatId] = useState(initialDoc.categories[0]?.id ?? "");
@@ -47,22 +50,27 @@ export function Dashboard({ initialDoc }: { initialDoc: MenuDoc }) {
   }, []);
 
   const run = useCallback(
-    async (fn: () => Promise<MenuDoc>, success: string, key?: string) => {
+    async (fn: () => Promise<ActionResult>, success: string, key?: string) => {
       if (key) setBusyId(key);
       try {
-        const saved = await fn();
-        setDoc(saved);
-        announceMenuChange(saved.updatedAt);
+        const res = await fn();
+        if (!res.ok) {
+          notify(res.error, "error");
+          if (res.expired) window.setTimeout(() => router.replace("/admin/login"), 1400);
+          return false;
+        }
+        setDoc(res.doc);
+        announceMenuChange(res.doc.updatedAt);
         notify(success);
         return true;
-      } catch (err) {
-        notify(err instanceof Error && err.message !== "Unauthorized" ? err.message : "Xatolik yuz berdi. Qayta kiring.", "error");
+      } catch {
+        notify("Server bilan aloqa uzildi. Internetni tekshirib, qayta saqlang.", "error");
         return false;
       } finally {
         if (key) setBusyId(null);
       }
     },
-    [notify],
+    [notify, router],
   );
 
   const category = doc.categories.find((c) => c.id === catId) ?? doc.categories[0];
