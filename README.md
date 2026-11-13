@@ -37,6 +37,28 @@ Fasl, ob-havo va vaqtni URL orqali majburlash mumkin (mijozlarga ta’sir qilmay
 
 ## Deploy
 
+### O‘z serveringiz (Contabo va boshqa VPS) — Docker + Caddy
+
+Server: Ubuntu 22.04/24.04. Menyu Docker volume’da (`menu-data`) saqlanadi, Caddy HTTPS sertifikatini o‘zi oladi.
+
+```bash
+# 1. Docker o‘rnatish (bir marta)
+curl -fsSL https://get.docker.com | sh
+
+# 2. Kodni olish
+git clone https://github.com/amirkhan-kh/MyCoffe.git /opt/mycoffee
+cd /opt/mycoffee
+cp .env.example .env && nano .env      # SESSION_SECRET: openssl rand -base64 48
+
+# 3. Ishga tushirish
+./deploy.sh
+```
+
+- **Lokal menyuni serverga ko‘chirish:** kompyuterdan `scp data/menu.json root@SERVER_IP:/opt/mycoffee/`, serverda `docker compose cp menu.json app:/app/data/menu.json && docker compose restart app`.
+- **Yangilash:** `git push` → GitHub Actions serverda `./deploy.sh` ni ishga tushiradi (`SERVER_HOST`, `SERVER_USER`, `SERVER_SSH_KEY` secret’lari kerak). Qo‘lda: serverda `cd /opt/mycoffee && ./deploy.sh`.
+- **Zaxira:** har deploydan oldin `backups/` papkasiga avtomatik (oxirgi 30 tasi). Qo‘lda: `docker compose exec -T app cat /app/data/menu.json > menu-backup.json`.
+- **Loglar:** `docker compose logs -f app`.
+
 ### Vercel + Supabase (serversiz, bepul)
 
 Vercel’da fayl tizimi faqat o‘qish uchun, shuning uchun menyu Supabase’da saqlanadi (bepul tarif yetarli).
@@ -48,10 +70,6 @@ Vercel’da fayl tizimi faqat o‘qish uchun, shuning uchun menyu Supabase’da 
 5. `NEXT_PUBLIC_SITE_URL` ni yakuniy manzilga (masalan `https://mycoffee.vercel.app`) moslang, Redeploy qiling va QR kodni admin paneldan qayta yuklab oling.
 
 Admin paneldagi o‘zgarishlar ochiq turgan menyularda sahifani yangilamasdan ko‘rinadi: shu brauzerda darhol, boshqa telefonlarda ~15 soniya ichida.
-
-### VPS (o‘z serveringiz)
-
-`npm run build && npm start`. Menyu `./data/menu.json` faylida saqlanadi (yoki `DATA_DIR` papkasida). Shu papkani zaxiralab turing.
 
 ## Manbalar
 
