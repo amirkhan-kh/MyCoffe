@@ -1,0 +1,34 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-}
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - menu-data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+volumes:
+  menu-data:
+  caddy-data:
+  caddy-config:

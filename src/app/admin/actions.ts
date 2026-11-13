@@ -24,7 +24,8 @@ import type { CategoryIcon, I18n, MenuDoc } from "@/lib/types";
 export type LoginState = { error?: string; login?: string };
 
 export async function loginAction(_prev: LoginState, form: FormData): Promise<LoginState> {
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
+  const h = await headers();
+  const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (loginBlocked(ip)) return { error: "Juda ko‘p urinish. 10 daqiqadan so‘ng qayta urinib ko‘ring." };
 
   const creds = adminCredentials();
@@ -42,7 +43,8 @@ export async function loginAction(_prev: LoginState, form: FormData): Promise<Lo
   clearFailures(ip);
   (await cookies()).set(SESSION_COOKIE, await createSessionToken(), {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // A server reached by bare IP over plain HTTP (before a domain is attached) must still accept the cookie.
+    secure: (h.get("x-forwarded-proto") ?? (process.env.NODE_ENV === "production" ? "https" : "http")) === "https",
     sameSite: "lax",
     path: "/",
     maxAge: SESSION_MAX_AGE,

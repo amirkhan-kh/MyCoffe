@@ -1,0 +1,8 @@
+# SITE_ADDRESS (.env) is a domain such as menu.mycoffee.uz for automatic HTTPS,
+# or ":80" to serve plain HTTP on the server IP until a domain is attached.
+{$SITE_ADDRESS::80} {
+	encode zstd gzip
+	reverse_proxy app:3000 {
+		flush_interval -1
+	}
+}

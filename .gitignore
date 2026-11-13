@@ -41,5 +41,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# menu data (file store)
+# menu data (file store) and server-side backups
 /data
+/backups

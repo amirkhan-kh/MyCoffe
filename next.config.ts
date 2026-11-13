@@ -4,6 +4,7 @@ const WEEK = 60 * 60 * 24 * 7;
 const YEAR = 60 * 60 * 24 * 365;
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
