@@ -17,7 +17,7 @@ if docker compose ps --status running app 2>/dev/null | grep -q app; then
     rm -f "$backup"
   fi
   # keep the 30 newest backups
-  ls -1t backups/menu-*.json 2>/dev/null | tail -n +31 | xargs -r rm -f
+  ls -1t backups/menu-*.json 2>/dev/null | tail -n +31 | xargs -r rm -f || true
 fi
 
 git pull --ff-only
