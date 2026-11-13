@@ -3,7 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "./auth";
 
-const DEV_LOGIN = "admin";
+const DEV_LOGIN = "dilim";
 const DEV_PASSWORD = "mycoffee2026";
 
 export function adminCredentials() {

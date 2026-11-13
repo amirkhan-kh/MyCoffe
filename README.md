@@ -10,7 +10,7 @@ cp .env.example .env.local   # qiymatlarni to‘ldiring
 npm run dev                  # http://localhost:3000
 ```
 
-Development rejimida `.env.local` bo‘lmasa admin kirish ma’lumotlari: `admin` / `mycoffee2026`. Production rejimida `ADMIN_LOGIN`, `ADMIN_PASSWORD` va `SESSION_SECRET` majburiy.
+Development rejimida `.env.local` bo‘lmasa admin kirish ma’lumotlari: `dilim` / `mycoffee2026`. Production rejimida `ADMIN_LOGIN`, `ADMIN_PASSWORD` va `SESSION_SECRET` majburiy.
 
 ## Admin panel — `/admin`
 
